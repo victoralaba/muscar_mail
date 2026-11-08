@@ -3,7 +3,7 @@ import secrets
 from typing import Optional
 from fastapi import Header, HTTPException, status
 
-from core.config import get_settings, settings
+from core.config import get_settings
 
 logger = logging.getLogger("muscar_mail.security")
 

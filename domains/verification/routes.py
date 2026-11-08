@@ -34,7 +34,9 @@ async def verify_emails_endpoint(
         return cached_result
 
     # 2. Daily quota boundary check (Invariant INV-QUOTA-1)
-    if not await cache.is_daily_quota_available(len(emails)):
+    # Deduplicate canonical addresses under Safe deduplication so repeated emails cost 1 credit
+    canonical_count = len(VerificationCache.get_canonical_emails(emails))
+    if not await cache.is_daily_quota_available(canonical_count):
         raise InsufficientCreditsError(
             message="Daily free-tier verification quota reached (max 25 credits/day). Resets at 00:00:00 UTC."
         )
@@ -46,7 +48,7 @@ async def verify_emails_endpoint(
     await cache.cache_batch(emails=emails, response=result)
 
     # 5. Atomically track daily usage against midnight-UTC reset
-    await cache.increment_daily_quota(amount=len(emails))
+    await cache.increment_daily_quota(amount=canonical_count)
 
     return result
 

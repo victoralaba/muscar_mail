@@ -24,11 +24,13 @@ from shared.exceptions import (
     MuscarMailError,
     UpstreamProviderError,
     UpstreamTimeoutError,
+    register_exception_handlers,
 )
 from shared.redis import RedisClient
 
-# Build test application mounting verification router
+# Build test application mounting verification router with exception handlers
 app = FastAPI()
+register_exception_handlers(app)
 app.include_router(verification_router)
 client = TestClient(app)
 
@@ -336,3 +338,148 @@ def test_rest_verify_oversized_batch_422():
     resp = client.post("/api/v1/verify", json={"emails": oversized}, headers=AUTH_HEADERS)
     assert resp.status_code == 422
     assert "exceeds maximum allowed limit" in resp.text
+
+
+def test_rest_verify_success_200():
+    """Validates: POST /api/v1/verify processes batch, caches results, and tracks quota."""
+    mock_response = BatchVerificationResponse(
+        submitted=1,
+        completed=1,
+        cached=False,
+        results=[
+            EmailVerificationResult(
+                email="live@example.com",
+                classification="Deliverable",
+                status="Success",
+                is_deliverable=True,
+                is_disposable=False,
+                is_role_account=False,
+                is_free_email=False,
+            )
+        ],
+    )
+
+    with patch("domains.verification.routes.verification_cache") as mock_cache, \
+         patch("domains.verification.routes.verifalia_service") as mock_service:
+        mock_cache.get_cached_batch = AsyncMock(return_value=None)
+        mock_cache.is_daily_quota_available = AsyncMock(return_value=True)
+        mock_cache.cache_batch = AsyncMock(return_value=True)
+        mock_cache.increment_daily_quota = AsyncMock(return_value=1)
+        mock_service.verify_emails = AsyncMock(return_value=mock_response)
+
+        resp = client.post("/api/v1/verify", json={"emails": ["live@example.com"]}, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["submitted"] == 1
+        assert data["completed"] == 1
+        assert data["cached"] is False
+        assert data["results"][0]["email"] == "live@example.com"
+        assert mock_cache.increment_daily_quota.called
+
+
+def test_rest_verify_duplicate_deduplication_quota():
+    """Validates Invariant INV-CREDIT-1: Safe deduplication counts canonical emails for quota."""
+    mock_response = BatchVerificationResponse(
+        submitted=2,
+        completed=2,
+        cached=False,
+        results=[
+            EmailVerificationResult(
+                email="dup@example.com",
+                classification="Deliverable",
+                status="Success",
+                is_deliverable=True,
+                is_disposable=False,
+                is_role_account=False,
+                is_free_email=False,
+            ),
+            EmailVerificationResult(
+                email="dup@example.com",
+                classification="Duplicate",
+                status="Duplicate",
+                is_deliverable=True,
+                is_disposable=False,
+                is_role_account=False,
+                is_free_email=False,
+            ),
+        ],
+    )
+
+    with patch("domains.verification.routes.verification_cache") as mock_cache, \
+         patch("domains.verification.routes.verifalia_service") as mock_service:
+        mock_cache.get_cached_batch = AsyncMock(return_value=None)
+        mock_cache.is_daily_quota_available = AsyncMock(return_value=True)
+        mock_cache.cache_batch = AsyncMock(return_value=True)
+        mock_cache.increment_daily_quota = AsyncMock(return_value=1)
+        mock_service.verify_emails = AsyncMock(return_value=mock_response)
+
+        # 2 duplicate items submitted
+        resp = client.post(
+            "/api/v1/verify",
+            json={"emails": ["dup@example.com", "DUP@example.com"]},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        # Quota checks and increments should only count 1 canonical email
+        mock_cache.is_daily_quota_available.assert_called_once_with(1)
+        mock_cache.increment_daily_quota.assert_called_once_with(amount=1)
+
+
+def test_rest_verify_cache_recovery_200():
+    """Validates Task [10]: Cached batch serves 0-credit recovery without invoking service."""
+    cached_response = BatchVerificationResponse(
+        submitted=1,
+        completed=1,
+        cached=True,
+        results=[
+            EmailVerificationResult(
+                email="cached@example.com",
+                classification="Deliverable",
+                status="Success",
+                is_deliverable=True,
+                is_disposable=False,
+                is_role_account=False,
+                is_free_email=False,
+            )
+        ],
+    )
+
+    with patch("domains.verification.routes.verification_cache") as mock_cache, \
+         patch("domains.verification.routes.verifalia_service") as mock_service:
+        mock_cache.get_cached_batch = AsyncMock(return_value=cached_response)
+
+        resp = client.post("/api/v1/verify", json={"emails": ["cached@example.com"]}, headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["cached"] is True
+        assert not mock_service.verify_emails.called
+
+
+def test_rest_verify_quota_exhausted_402():
+    """Validates Invariant INV-QUOTA-1: Exhausted daily quota raises 402 with structured error."""
+    with patch("domains.verification.routes.verification_cache") as mock_cache:
+        mock_cache.get_cached_batch = AsyncMock(return_value=None)
+        mock_cache.is_daily_quota_available = AsyncMock(return_value=False)
+
+        resp = client.post("/api/v1/verify", json={"emails": ["quota@example.com"]}, headers=AUTH_HEADERS)
+        assert resp.status_code == 402
+        assert "Daily free-tier verification quota reached" in resp.json()["error"]
+
+
+def test_rest_credits_success_200():
+    """Validates: GET /api/v1/credits returns account balance and reset timestamp."""
+    mock_bal = CreditBalanceResponse(
+        credit_packs=15.0,
+        free_credits=25.0,
+        free_credits_reset_on="2026-11-09T00:00:00Z",
+    )
+
+    with patch("domains.verification.routes.verifalia_service") as mock_service:
+        mock_service.get_credit_balance = AsyncMock(return_value=mock_bal)
+
+        resp = client.get("/api/v1/credits", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["credit_packs"] == 15.0
+        assert data["free_credits"] == 25.0
+        assert data["free_credits_reset_on"] == "2026-11-09T00:00:00Z"

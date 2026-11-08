@@ -104,7 +104,7 @@ class VerificationCache:
             ]
             logger.info("Serving batch verification from cache (0 credits consumed).", key=key)
             return BatchVerificationResponse(
-                submitted=data.get("submitted", len(emails)),
+                submitted=len(emails),
                 completed=data.get("completed", len(results)),
                 cached=True,
                 results=results,

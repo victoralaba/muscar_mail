@@ -1,4 +1,6 @@
 from typing import Any, Dict, Optional
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 
 class MuscarMailError(Exception):
@@ -62,3 +64,21 @@ class UpstreamProviderError(MuscarMailError):
 
     def __init__(self, message: str = "Upstream verification service encountered an error."):
         super().__init__(message=message, status_code=502)
+
+
+async def muscar_mail_exception_handler(
+    request: Request, exc: MuscarMailError
+) -> JSONResponse:
+    """Translates domain MuscarMailError exceptions into structured JSON responses."""
+    content: Dict[str, Any] = {"error": exc.message}
+    if exc.details:
+        content["details"] = exc.details
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=content,
+    )
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    """Mounts muscar_mail domain exception handlers onto a FastAPI application instance."""
+    app.add_exception_handler(MuscarMailError, muscar_mail_exception_handler)
