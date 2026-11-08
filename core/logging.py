@@ -6,8 +6,13 @@ import structlog
 SENSITIVE_KEYS = {
     "authorization",
     "x-api-key",
+    "api-key",
+    "api_key",
+    "apikey",
+    "access_token",
     "password",
     "verifalia_password",
+    "verifalia_username",
     "mcp_api_keys",
     "secret",
     "token",
@@ -19,11 +24,17 @@ def redact_sensitive_data(
 ) -> MutableMapping[str, Any]:
     """Structlog processor that recursively redacts sensitive headers and credentials."""
 
+    def _is_sensitive(k: str) -> bool:
+        lowered = k.lower()
+        if lowered in SENSITIVE_KEYS:
+            return True
+        return any(sub in lowered for sub in ("password", "secret", "token", "apikey", "api_key"))
+
     def _sanitize(value: Any) -> Any:
         if isinstance(value, dict):
             sanitized = {}
             for k, v in value.items():
-                if isinstance(k, str) and k.lower() in SENSITIVE_KEYS:
+                if isinstance(k, str) and _is_sensitive(k):
                     sanitized[k] = "[REDACTED]"
                 else:
                     sanitized[k] = _sanitize(v)

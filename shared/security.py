@@ -23,13 +23,13 @@ async def verify_mcp_api_key(
         parts = authorization.strip().split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             provided_key = parts[1]
-        elif len(parts) == 1:
+        elif len(parts) == 1 and parts[0].lower() != "bearer":
             provided_key = parts[0]
 
     if not provided_key and x_api_key:
         provided_key = x_api_key.strip()
 
-    current_settings = settings or get_settings()
+    current_settings = get_settings()
     valid_keys = current_settings.MCP_API_KEYS
 
     if not provided_key:

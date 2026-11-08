@@ -33,13 +33,19 @@ client = TestClient(app)
 
 
 def test_missing_credentials_rejection():
-    """Validates Task [10]: Request without key is rejected with HTTP 401."""
+    """Validates Task [10] & Task [5]: Request without key or with empty Bearer is rejected with HTTP 401."""
     original_keys = settings.MCP_API_KEYS
     try:
         settings.MCP_API_KEYS = ["secret-agent-key-1", "secret-agent-key-2"]
+        # No header
         resp = client.get("/secured")
         assert resp.status_code == 401
         assert "Missing API key" in resp.json()["detail"]
+
+        # Empty Bearer header (Task [5])
+        resp_empty_bearer = client.get("/secured", headers={"Authorization": "Bearer "})
+        assert resp_empty_bearer.status_code == 401
+        assert "Missing API key" in resp_empty_bearer.json()["detail"]
     finally:
         settings.MCP_API_KEYS = original_keys
 
@@ -83,12 +89,15 @@ def test_valid_api_key_acceptance():
 
 
 def test_structlog_secret_redaction():
-    """Validates Task [13]: Secrets and sensitive headers are redacted."""
+    """Validates Task [13] & Task [3]: Secrets, credentials, and expanded sensitive headers are redacted."""
     raw_event = {
         "event": "Incoming agent call",
         "authorization": "Bearer super-secret-token-12345",
         "headers": {
             "x-api-key": "secret-key-abc",
+            "api-key": "alt-api-key-123",
+            "access_token": "bearer-access-token",
+            "verifalia_username": "my-user@example.com",
             "host": "muscar.render.com",
             "password": "confidential-pass",
         },
@@ -99,6 +108,9 @@ def test_structlog_secret_redaction():
 
     assert sanitized["authorization"] == "[REDACTED]"
     assert sanitized["headers"]["x-api-key"] == "[REDACTED]"
+    assert sanitized["headers"]["api-key"] == "[REDACTED]"
+    assert sanitized["headers"]["access_token"] == "[REDACTED]"
+    assert sanitized["headers"]["verifalia_username"] == "[REDACTED]"
     assert sanitized["headers"]["password"] == "[REDACTED]"
     assert sanitized["headers"]["host"] == "muscar.render.com"
     assert sanitized["safe_field"] == "public_data"

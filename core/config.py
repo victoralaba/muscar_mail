@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import List, Optional, Union
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -67,16 +68,19 @@ class Settings(BaseSettings):
         return v.rstrip("/")
 
 
+@lru_cache()
 def get_settings() -> Settings:
-    """Instantiates and validates application settings. Fails fast if required variables are missing."""
+    """Instantiates and validates cached application settings. Fails fast if required variables are missing."""
     return Settings()
 
 
-# Instantiate default application settings
-settings: Settings
-try:
-    settings = get_settings()
-except Exception:
-    # If required environment variables are missing during initial import, settings will be None
-    # and get_settings() can be called when env is ready.
-    settings = None  # type: ignore[assignment]
+def reset_settings_cache() -> None:
+    """Clears cached settings singleton (primarily for testing and environment reloads)."""
+    get_settings.cache_clear()
+
+
+def __getattr__(name: str) -> object:
+    """Provides module-level lazy access to settings while ensuring explicit fail-fast validation."""
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
