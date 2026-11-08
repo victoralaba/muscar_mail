@@ -100,7 +100,7 @@ For every route in every router:
 ```
 - Is the operation idempotent where it should be?
 - Are there race conditions? (e.g., check-then-act without locking)
-- Are there state transition violations? (e.g., cancelling an already-completed order)
+- Are there state transition violations? (e.g., re-verifying an in-flight batch or modifying a sealed result)
 - Are there off-by-one errors, wrong comparisons, or inverted conditions?
 - Is the intended behaviour consistent with the route name, docstring, and comments?
 - Are there silent no-ops that should be errors?

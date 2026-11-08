@@ -233,29 +233,32 @@ the DB schema changes AND when the business rule changes — it has three jobs.
 **Decomposing a fat service method:**
 
 ```python
-# Before — one method doing orchestration + validation + DB + notifications + response
-async def create_order(self, db, user_id, data):
+# Before — one method doing orchestration + validation + upstream API + cache + response
+async def verify_batch(self, emails):
     # 40+ lines of mixed concerns
 
 # After — decomposed by responsibility
-async def create_order(self, db: AsyncSession, user_id: UUID, data: OrderCreateRequest) -> OrderResponse:
+async def verify_batch(self, emails: list[str]) -> BatchVerificationResponse:
     # Orchestration only — each sub-method has one job
-    await self._validate_order_constraints(db, user_id, data)
-    inventory = await self._reserve_inventory(db, data.items)
-    order = await order_repo.create(db, user_id=user_id, data=data, inventory=inventory)
-    await self._trigger_order_events(order)
-    return OrderResponse.model_validate(order)
+    sanitized = self._sanitize_and_validate(emails)
+    if cached := await self._check_cache(sanitized):
+        return cached
+    await self._check_quota_guardrails(len(sanitized))
+    raw_results = await self._call_provider(sanitized)
+    distilled = self._distill_results(raw_results)
+    await self._persist_cache(sanitized, distilled)
+    return distilled
 
-async def _validate_order_constraints(self, db, user_id, data):
-    # validation only — raises domain exceptions on failure
+async def _sanitize_and_validate(self, emails: list[str]) -> list[str]:
+    # validation only — enforces batch cap <= 25, raises BatchLimitExceededError
     ...
 
-async def _reserve_inventory(self, db, items):
-    # inventory reservation only — returns reserved inventory or raises
+async def _check_cache(self, emails: list[str]) -> BatchVerificationResponse | None:
+    # cache retrieval only — fail-open resilience
     ...
 
-async def _trigger_order_events(self, order):
-    # side effects only — notifications, tasks, events
+async def _call_provider(self, emails: list[str]) -> dict:
+    # provider adapter only — calls Verifalia with waitTime
     ...
 ```
 
@@ -664,10 +667,10 @@ After any structural refactor (not a behavioral change), verify:
 # Same function signatures, same return types, same exceptions raised
 
 # Before refactor — document the contract
-# endpoint: POST /orders
-# request: OrderCreateRequest
-# response: 201 OrderResponse
-# errors: 409 if duplicate, 404 if user not found, 400 if invalid items
+# endpoint: POST /api/v1/verify
+# request: EmailVerifyRequest
+# response: 200 BatchVerificationResponse
+# errors: 422 if >25 emails, 401 if unauthenticated, 402 if credits exhausted
 
 # After refactor — contract must match exactly
 # If it doesn't, that's a behavioral change — document and justify it

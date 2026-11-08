@@ -72,25 +72,27 @@ Example:
 sequenceDiagram
     autonumber
     actor Client
-    participant Router as router.py
-    participant Service as service.py
-    participant DB as PostgreSQL
-    participant Worker as taskiq_worker.py
-    participant Partner as External API
+    participant Router as routes.py (POST /mcp/v1/)
+    participant Service as service.py (VerifaliaService)
+    participant Cache as cache.py (Redis Fail-Open)
+    participant Provider as Verifalia API (v2.4)
 
-    Client->>Router: POST /api/v1/orders
-    Router->>Service: create_order()
-    Service->>DB: INSERT order (status=pending)
-    alt Payment Succeeded
-        DB-->>Service: Commit transaction
-        Service->>Worker: Enqueue fulfillment_task
-        Worker->>Partner: Transmit order payload
-        Partner-->>Worker: 200 OK + Tracking ID
-        Worker->>DB: UPDATE order (status=fulfilled)
-        Service-->>Client: 201 Created (OrderResponse)
-    else Payment Failed
-        DB-->>Service: Rollback transaction
-        Service-->>Client: 402 Payment Required
+    Client->>Router: tools/call {name: "verify_emails", emails: [...]}
+    Router->>Service: verify_emails(emails, wait_time_ms=30000)
+    Service->>Cache: get_cached_batch(emails)
+    alt Cache Hit (0 credits consumed)
+        Cache-->>Service: Cached BatchVerificationResponse
+        Service-->>Client: 200 OK JSON-RPC Distilled Result
+    else Cache Miss
+        Service->>Provider: POST /v2.4/email-validations?waitTime=30000
+        alt Upstream 200 OK (Synchronous completion)
+            Provider-->>Service: Raw validation entries
+            Service->>Cache: cache_batch(emails, result)
+            Service-->>Client: 200 OK JSON-RPC Distilled Result
+        else Upstream 402 Insufficient Credits
+            Provider-->>Service: 402 Payment Required
+            Service-->>Client: JSON-RPC Error -32002 (Insufficient Credits)
+        end
     end
 ```
 

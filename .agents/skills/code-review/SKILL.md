@@ -57,9 +57,9 @@ gh pr diff <pr_number_or_url>
 1. Run the appropriate git diff command.
 2. For all modified or untracked files, read the surrounding code and imports to understand the full context.
 3. Check if the changes cross architectural boundaries:
-   - Modifies domain routes/schemas → Must update `docs/api/<domain>.md`.
-   - Modifies scheduled jobs or internal cron routes → Must update `docs/cron/jobs.json`, `docs/cron/jobs.md`, and verify via `uv run pytest tests/test_cron_manifest.py`.
-   - Modifies customer-facing text or emails → Must verify no mention of "print on demand" and no supplier names.
+   - Modifies domain routes/schemas → Must update API/MCP contracts and verify Pydantic models.
+   - Modifies Verifalia integration / upstream calls → Must enforce bounded `waitTime=30000`, safe deduplication, and max 25 email boundary.
+   - Modifies Redis caching / quota tracking → Must maintain midnight-UTC TTL alignment and fail-open resilience.
 
 ---
 
@@ -67,30 +67,36 @@ gh pr diff <pr_number_or_url>
 
 When evaluating trade-offs, adhere strictly to the **muscar_mail Decision Order** ([`principles.md`](.agents/references/principles.md)):
 
-1. **Protect quota correctness and external API safety first**:
-   - Never exceed the 25-email batch cap; prevent quota drain.
-   - External provider calls and retries are bounded, logged with correlation IDs, and deduplicated.
-2. **Protect contract integrity and statelessness second**:
-   - Zero persistent state required for the MCP endpoint (`POST /mcp/v1/`).
-   - Strict JSON-RPC 2.0 error handling and response envelopes.
-3. **Protect token efficiency third**:
-   - Shape responses compactly for LLM agents rather than dumping raw provider payloads.
-4. **Protect operability and security fourth**:
-   - Never log secrets or credentials in plaintext.
-   - Enforce input sanitization and email format validation before calling upstream.
-6. **Optimize elegance and local developer convenience last**:
-   - Never compromise safety, provider decoupling, or explicit state handling for DRY or clever abstractions.
+1. **Protect quota correctness and external credit safety first**:
+   * Enforce ≤25 emails before any outbound network call.
+   * Apply `Safe` batch deduplication so repeated emails within a batch consume only 1 credit.
+   * Check Redis cache to serve identical batches at 0 credit cost.
+2. **Protect statelessness and serverless contract integrity second**:
+   * Never introduce stateful in-memory sessions, persistent connection locks, or SSE dependencies that break when Render sleeps.
+   * Every request must be independently processable.
+3. **Protect token efficiency and agent usability third**:
+   * Distill Verifalia's verbose DNS, MX, and SMTP logs into a compact, high-signal JSON summary (`email`, `classification`, `status`, `is_deliverable`, `is_disposable`, `is_role_account`, `is_free_email`).
+4. **Protect reliability and operability fourth**:
+   * Deterministic JSON-RPC 2.0 error contracts.
+   * Constant-time comparison for API keys (`secrets.compare_digest`).
+   * Bounded external timeouts (`waitTime=30000` ceiling).
+   * Structured JSON logging via `structlog`; telemetry via `sentry-sdk`.
+5. **Optimize latency and cost fifth**:
+   * Multiplexed HTTP/2 calls via `httpx2`.
+   * Atomic Redis counters with midnight UTC TTL.
+6. **Optimize local developer convenience last**:
+   * No speculative code, no premature abstractions, no unneeded frameworks.
 
 ---
 
 ### 3. Algorithmic & Systems Design Evaluation
 
 Evaluate code changes against standard engineering and algorithmic design principles:
-- **Asymptotic Complexity & Scaling** (`principles.md` §11, §12): Watch for nested loops causing $O(n^2)$ scans, unindexed DB queries, or N+1 query patterns.
-- **Fail Fast & Input Validation** (`principles.md` §52): Reject invalid payloads at the schema/route boundary before service execution.
-- **Deduplication & Set Operations** (`principles.md` §1): Avoid redundant in-memory copying or re-fetching identical entities.
-- **Idempotency** (`principles.md` §24): Ensure retries of network calls or worker jobs produce identical, safe outcomes.
-- **Bulkheading & Isolation** (`principles.md` §2, §59): Provider integrations (Printify, Printful) must remain isolated behind adapters. Core entities never import provider SDKs or speak provider schemas directly.
+- **Asymptotic Complexity & Scaling** (`principles.md` §11, §12): Watch for nested loops causing $O(n^2)$ scans or unindexed lookups.
+- **Fail Fast & Input Validation** (`principles.md` §52): Reject invalid payloads (batches > 25 emails, invalid email strings) at the Pydantic schema/route boundary before calling upstream APIs.
+- **Deduplication & Set Operations** (`principles.md` §1): Leverage `Safe` deduplication and canonical lowercase email set operations to conserve credits.
+- **Idempotency** (`principles.md` §24): Ensure retries of batch verification produce identical, safe outcomes via deterministic batch hashing (`cache:batch:<sha256>`).
+- **Bulkheading & Isolation** (`principles.md` §2, §59): Upstream verification provider integrations (Verifalia) must remain isolated behind adapters in `domains/verification/service.py`. Core schemas and MCP handlers never import provider SDKs or speak raw provider schemas directly.
 
 ---
 
@@ -100,12 +106,12 @@ Before reporting a bug or design flaw, check whether an intentional architectura
 
 | Rule / Principle | When it is EXEMPT (Do NOT flag) | Rationale |
 | :--- | :--- | :--- |
-| **Indexing / Hash Maps ($O(1)$)** | Collections with $N \le 30$ (e.g., cart items, product variants, order line items) using simple linear scans ($O(n)$). | Linear scans on small slices have contiguous memory locality, lower constant overhead, and zero hashing penalty. |
-| **Async Worker Dispatch** | Operations requiring synchronous transactional consistency (e.g., payment intent creation, stock reservation locks). | Deferred execution breaks transactional guarantees and causes race conditions. |
-| **DRY / Deduplication** | Code duplication across different provider adapters (e.g., Printify vs. Printful helper methods). | Adapters must remain fully decoupled. Shared abstractions between providers create rigid, fragile couplings. |
-| **Caching / Memoization** | Inventory counts, stock availability, pricing calculations, or payment verification endpoints. | Stale reads lead to overselling, undercharging, or missed payments. Real-time truth is paramount. |
-| **Elegance / DRY Abstractions** | Explicit, repetitive state-machine branching or validation guards. | Legibility and explicit audit trails take precedence over terse abstractions. |
-| **Precomputation** | Volatile data dependent on real-time external carrier rates or localized taxes. | Cannot be precomputed; must be resolved dynamically at checkout. |
+| **Indexing / Hash Maps ($O(1)$)** | Small email batch lists ($N \le 25$) using simple set or linear operations ($O(n)$). | Linear scans on small slices have contiguous memory locality, lower constant overhead, and zero hashing penalty. |
+| **Async Network Dispatch** | Healthcheck endpoint (`GET /health`) must remain zero-network and instantaneous (<5ms). | Health probes must never be blocked by external provider timeouts or downstream network calls. |
+| **DRY / Deduplication** | Upstream provider adapter isolation. | Upstream mapping logic stays encapsulated in the adapter rather than leaked into shared cross-domain utilities. |
+| **Fail-Open Resilience** | Redis cache operations (batch retrieval or quota tracking). | Redis is strictly an optional, fail-open cache. Redis connection failures must log warnings and continue verification without crashing the service. |
+| **Elegance / DRY Abstractions** | Explicit, repetitive JSON-RPC 2.0 error mapping (-32700, -32600, -32601, -32602, -32603) and Pydantic field validators. | Legibility, strict protocol compliance, and explicit audit trails take precedence over terse abstractions. |
+| **Precomputation / Dynamic TTL** | Daily quota key expiration (`quota:daily:YYYY-MM-DD`). | Cannot use hardcoded 24h TTL; must be resolved dynamically against Verifalia's `freeCreditsResetOn` (00:00:00 UTC). |
 
 ---
 
@@ -126,7 +132,7 @@ Your output must be structured, atomic, and executable. Deliver findings in the 
 
 [1]. [ACTION VERB] [specific thing] in [file:function]
      Severity: [Critical | Major | Minor]
-     Principle/Constraint: [Exact principle or rule name, e.g. "principles.md §83 (Money in minor units)"]
+     Principle/Constraint: [Exact principle or rule name, e.g. "principles.md §4 (Max 25 emails per batch)"]
      Scenario: [Exact condition, input, or environment where this fails or breaks]
      Problem: [One sentence explaining the defect]
      Fix: [One sentence concrete code change to resolve it]
@@ -140,7 +146,7 @@ Your output must be structured, atomic, and executable. Deliver findings in the 
 (Confirm fixes were applied correctly by code tracing or inspection.)
 
 [N+1]. Verify [fix] by tracing [call path / logic flow] in [file:function]
-       Check: [Exact condition to confirm, e.g., assert 422 returned on invalid minor unit amount]
+       Check: [Exact condition to confirm, e.g., assert 422 returned on batch size > 25]
        Method: [Code inspection / AST trace]
 
 ---
@@ -149,7 +155,7 @@ Your output must be structured, atomic, and executable. Deliver findings in the 
 (Prove the fix holds under real execution — tests, dry-runs, linter.)
 
 [N+V+1]. [Run / Assert / Execute] [command or test scenario]
-         Command: [e.g. `uv run pytest tests/test_orders.py -k test_idempotent_checkout`]
+         Command: [e.g. `pytest tests/test_verification.py -k test_batch_limit_exceeded`]
          Expected: [Expected output or test assertion passing]
          Validates: [Task number(s) validated]
 

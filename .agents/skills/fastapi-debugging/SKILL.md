@@ -710,25 +710,21 @@ For any bug that cannot be diagnosed from the code alone, provide specific
 instrumentation before the fix — not generic "add some logs."
 
 ```python
-# Specific instrumentation for a logic bug in order processing
-import logging
-logger = logging.getLogger(__name__)
+# Specific instrumentation for a logic bug in batch verification processing
+import structlog
+logger = structlog.get_logger(__name__)
 
-async def process_order(db, order_id):
-    order = await order_repo.get(db, id=order_id)
-    logger.debug("process_order: fetched order", extra={
-        "order_id": str(order_id),
-        "order_status": order.status,
-        "order_total": str(order.total),
-        "item_count": len(order.items),  # will fail if items not loaded — that's useful info
+async def process_verification_batch(service, emails):
+    logger.debug("process_verification_batch: received batch", extra={
+        "batch_size": len(emails),
+        "unique_count": len(set(emails)),
     })
 
-    result = await payment_service.charge(order)
-    logger.debug("process_order: charge result", extra={
-        "order_id": str(order_id),
-        "charge_success": result.success,
-        "charge_amount": str(result.amount),
-        "charge_id": result.charge_id,
+    result = await service.verify_emails(emails)
+    logger.debug("process_verification_batch: verification completed", extra={
+        "submitted": result.submitted,
+        "completed": result.completed,
+        "first_result_status": result.results[0].status if result.results else None,
     })
 ```
 
