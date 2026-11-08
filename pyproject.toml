@@ -1,0 +1,20 @@
+[project]
+name = "muscar-mail"
+version = "1.0.0"
+description = "Stateless Model Context Protocol (MCP) engine and FastAPI service for Verifalia Email Verification"
+authors = [{ name = "Victor Alaba" }]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.162.2",
+    "uvicorn[standard]>=0.54.0",
+    "httpx2>=2.16.0",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.2",
+    "redis>=8.1.0",
+    "sentry-sdk[fastapi]>=2.74.0",
+    "structlog>=26.1.0",
+    "tenacity>=9.2.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
