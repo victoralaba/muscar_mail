@@ -101,8 +101,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--base-url",
-        default=os.environ.get("SERVER_URL", "http://localhost:8000"),
-        help="Base server URL (default: http://localhost:8000 or $SERVER_URL)",
+        default=None,
+        help="Base server URL (e.g. https://verif.muscar.app or http://localhost:8000)",
     )
     parser.add_argument(
         "--api-key",
@@ -117,16 +117,57 @@ def main() -> int:
     parser.add_argument(
         "--skip-verify",
         action="store_true",
+        default=False,
         help="Skip the live email verification call to conserve daily Verifalia credits",
     )
 
     args = parser.parse_args()
-    base_url = args.base_url.rstrip("/")
-    api_key = args.api_key
 
+    # 1. Determine target server URL (prompt interactively if not provided)
+    base_url = args.base_url
+    if not base_url:
+        env_url = os.environ.get("SERVER_URL")
+        if env_url:
+            base_url = env_url
+        elif sys.stdin.isatty():
+            print(f"\n{BOLD}Select target server to test:{RESET}")
+            print(f"  1) {GREEN}https://verif.muscar.app{RESET} (Custom Domain)")
+            print(f"  2) {BLUE}https://muscar-mail.onrender.com{RESET} (Render Default)")
+            print(f"  3) {YELLOW}http://localhost:8000{RESET} (Local)")
+            print(f"  4) Custom URL")
+            choice = input(f"\nSelect [1-4] or enter URL (default: 1): ").strip()
+            if not choice or choice == "1":
+                base_url = "https://verif.muscar.app"
+            elif choice == "2":
+                base_url = "https://muscar-mail.onrender.com"
+            elif choice == "3":
+                base_url = "http://localhost:8000"
+            elif choice.startswith("http://") or choice.startswith("https://"):
+                base_url = choice
+            else:
+                custom_url = input("Enter server URL: ").strip()
+                base_url = custom_url if custom_url.startswith("http") else f"https://{custom_url}"
+        else:
+            base_url = "http://localhost:8000"
+
+    base_url = base_url.rstrip("/")
+
+    # 2. Determine API Key
+    api_key = args.api_key
     if not api_key:
-        print_fail("No MCP API key provided. Specify --api-key or set MCP_API_KEYS in .env")
-        return 1
+        if sys.stdin.isatty():
+            print_warn("No MCP API key found in .env or arguments.")
+            api_key = input("Enter MCP API Key: ").strip()
+        if not api_key:
+            print_fail("No MCP API key provided. Specify --api-key or set MCP_API_KEYS in .env")
+            return 1
+
+    # 3. Determine if live verification should be executed
+    skip_verify = args.skip_verify
+    if not skip_verify and sys.stdin.isatty():
+        prompt = input(f"\nVerify live email '{args.email}'? (Consumes 1 credit) [y/N]: ").strip().lower()
+        if prompt not in ("y", "yes"):
+            skip_verify = True
 
     auth_headers = {
         "Authorization": f"Bearer {api_key}",
@@ -242,7 +283,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # 6. MCP Tool Call: verify_emails (Live or Skipped)
     # -------------------------------------------------------------------------
-    if args.skip_verify:
+    if skip_verify:
         print_step("6. Tool Execution: verify_emails (SKIPPED via --skip-verify)")
         print_warn("Skipping live verification to conserve credits.")
     else:
