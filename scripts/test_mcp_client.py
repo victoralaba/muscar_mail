@@ -76,7 +76,7 @@ def http_request(
 
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=45) as resp:
             status_code = resp.getcode()
             body = resp.read().decode("utf-8")
             try:
