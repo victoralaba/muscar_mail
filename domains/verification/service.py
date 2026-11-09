@@ -229,8 +229,16 @@ class VerifaliaService:
 
     async def aclose(self) -> None:
         """Closes the underlying httpx2 client connection pool."""
-        if self._client is not None and not self._client.is_closed:
-            await self._client.aclose()
+        if self._client is not None:
+            try:
+                if not self._client.is_closed:
+                    await self._client.aclose()
+            finally:
+                self._client = None
+
+    async def close(self) -> None:
+        """Convenience alias for aclose."""
+        await self.aclose()
 
 
 # Global singleton instance

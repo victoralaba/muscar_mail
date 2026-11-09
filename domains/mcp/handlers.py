@@ -69,8 +69,25 @@ class MCPHandler:
             params = request.params or {}
 
             if method == "initialize":
-                result = self._handle_initialize()
-                return JSONRPCResponse(id=req_id, result=result)
+                res_or_err = self._handle_initialize(params)
+                if isinstance(res_or_err, JSONRPCError):
+                    return JSONRPCResponse(id=req_id, error=res_or_err)
+                return JSONRPCResponse(id=req_id, result=res_or_err)
+
+            elif method in ("server/discover", "discover"):
+                settings = get_settings()
+                return JSONRPCResponse(
+                    id=req_id,
+                    result={
+                        "serverInfo": {
+                            "name": settings.MCP_SERVER_NAME,
+                            "version": settings.MCP_SERVER_VERSION,
+                        },
+                        "supportedProtocolVersions": settings.SUPPORTED_MCP_PROTOCOL_VERSIONS,
+                        "protocolVersion": settings.MCP_PROTOCOL_VERSION,
+                        "capabilities": {"tools": {}},
+                    },
+                )
 
             elif method == "notifications/initialized":
                 # Notification ack
@@ -106,11 +123,30 @@ class MCPHandler:
                 ),
             )
 
-    def _handle_initialize(self) -> Dict[str, Any]:
-        """Handles initialize handshake returning protocol version and capabilities."""
+    def _handle_initialize(self, params: Dict[str, Any]) -> Union[Dict[str, Any], JSONRPCError]:
+        """Handles initialize handshake negotiating protocol version and returning capabilities."""
         settings = get_settings()
+        client_version = params.get("protocolVersion")
+
+        # Negotiate protocol version dynamically
+        if client_version:
+            if client_version in settings.SUPPORTED_MCP_PROTOCOL_VERSIONS:
+                negotiated_version = client_version
+            else:
+                return JSONRPCError(
+                    code=JSONRPCErrorCode.UNSUPPORTED_PROTOCOL_VERSION,
+                    message="Unsupported protocol version",
+                    data={
+                        "supported": settings.SUPPORTED_MCP_PROTOCOL_VERSIONS,
+                        "requested": client_version,
+                    },
+                )
+        else:
+            # Default to latest version if omitted by client
+            negotiated_version = settings.MCP_PROTOCOL_VERSION
+
         res = InitializeResult(
-            protocolVersion=settings.MCP_PROTOCOL_VERSION,
+            protocolVersion=negotiated_version,
             capabilities={"tools": {}},
             serverInfo=ServerInfo(
                 name=settings.MCP_SERVER_NAME,

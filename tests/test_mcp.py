@@ -121,25 +121,78 @@ def test_mcp_batch_request_handling():
 # -----------------------------------------------------------------------------
 
 def test_mcp_initialize():
-    """Validates: initialize returns protocolVersion '2024-11-05' and server capabilities."""
-    req = {
+    """Validates: initialize negotiates requested version and returns server capabilities."""
+    # 1. Modern 2026-07-28 negotiation
+    req_modern = {
         "jsonrpc": "2.0",
         "id": 100,
         "method": "initialize",
         "params": {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2026-07-28",
             "capabilities": {},
             "clientInfo": {"name": "test-client", "version": "1.0.0"},
+        },
+    }
+    resp_modern = client.post("/mcp/v1/", json=req_modern, headers=AUTH_HEADERS)
+    assert resp_modern.status_code == 200
+    assert resp_modern.headers.get("mcp-protocol-version") == "2026-07-28"
+    data_modern = resp_modern.json()
+    assert data_modern["id"] == 100
+    assert data_modern["result"]["protocolVersion"] == "2026-07-28"
+    assert "tools" in data_modern["result"]["capabilities"]
+    assert data_modern["result"]["serverInfo"]["name"] == "muscar-mail"
+
+    # 2. Backwards-compatible 2024-11-05 negotiation
+    req_legacy = {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "legacy-client", "version": "1.0.0"},
+        },
+    }
+    resp_legacy = client.post("/mcp/v1/", json=req_legacy, headers=AUTH_HEADERS)
+    assert resp_legacy.status_code == 200
+    assert resp_legacy.json()["result"]["protocolVersion"] == "2024-11-05"
+
+
+def test_mcp_initialize_unsupported_protocol_version():
+    """Validates: initialize with unsupported version returns error -32022 with supported list."""
+    req = {
+        "jsonrpc": "2.0",
+        "id": 102,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "1999-01-01",
         },
     }
     resp = client.post("/mcp/v1/", json=req, headers=AUTH_HEADERS)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["id"] == 100
-    result = data["result"]
-    assert result["protocolVersion"] == "2024-11-05"
-    assert "tools" in result["capabilities"]
-    assert result["serverInfo"]["name"] == "muscar-mail"
+    assert data["id"] == 102
+    assert data["error"]["code"] == -32022
+    assert "Unsupported protocol version" in data["error"]["message"]
+    assert "2026-07-28" in data["error"]["data"]["supported"]
+    assert data["error"]["data"]["requested"] == "1999-01-01"
+
+
+def test_mcp_server_discover():
+    """Validates: server/discover returns supported protocol versions and capabilities."""
+    req = {
+        "jsonrpc": "2.0",
+        "id": 103,
+        "method": "server/discover",
+    }
+    resp = client.post("/mcp/v1/", json=req, headers=AUTH_HEADERS)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == 103
+    res = data["result"]
+    assert "2026-07-28" in res["supportedProtocolVersions"]
+    assert res["protocolVersion"] == "2026-07-28"
+    assert "tools" in res["capabilities"]
 
 
 def test_mcp_notifications_initialized():

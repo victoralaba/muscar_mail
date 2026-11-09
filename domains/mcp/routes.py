@@ -1,7 +1,8 @@
 import json
 from typing import Any, Dict, List, Union
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
+from core.config import get_settings
 from core.logging import get_logger
 from domains.mcp.handlers import MCPHandler, mcp_handler
 from domains.mcp.protocol import (
@@ -39,10 +40,12 @@ def get_mcp_handler() -> MCPHandler:
 )
 async def mcp_endpoint(
     request: Request,
+    response: Response,
     api_key: str = Depends(verify_mcp_api_key),
     handler: MCPHandler = Depends(get_mcp_handler),
 ) -> Union[JSONRPCResponse, List[JSONRPCResponse]]:
     """Receives and dispatches stateless JSON-RPC 2.0 requests with strict error mapping."""
+    response.headers["MCP-Protocol-Version"] = get_settings().MCP_PROTOCOL_VERSION
     raw_body = await request.body()
 
     # 1. Parse JSON syntax (Invariant INV-MCP-ERR: -32700 Parse Error)
