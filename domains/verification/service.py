@@ -44,8 +44,14 @@ class VerifaliaService:
     async def get_client(self) -> httpx2.AsyncClient:
         """Returns the shared httpx2 HTTP/2 client with Basic Auth and 45s timeout."""
         if self._client is None or self._client.is_closed:
+            try:
+                import h2  # noqa: F401
+                use_http2 = True
+            except ImportError:
+                use_http2 = False
+
             self._client = httpx2.AsyncClient(
-                http2=True,
+                http2=use_http2,
                 auth=(self._username, self._password),
                 timeout=httpx2.Timeout(45.0, connect=10.0),
                 headers={
