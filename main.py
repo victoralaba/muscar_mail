@@ -246,14 +246,17 @@ INDEX_HTML = """<!doctype html>
       <a href="https://muscar.app" class="btn btn-primary" target="_blank" rel="noopener">
         Visit muscar.app &rarr;
       </a>
+      <a href="https://github.com/victoralaba/muscar_mail" class="btn btn-secondary" target="_blank" rel="noopener">
+        GitHub
+      </a>
       <a href="/docs" class="btn btn-secondary">
-        API Documentation
+        API Docs
       </a>
     </div>
   </div>
 
   <footer>
-    Part of the <a href="https://muscar.app" target="_blank" rel="noopener">muscar.app</a> ecosystem &bull; Licensed under MIT
+    Part of the <a href="https://muscar.app" target="_blank" rel="noopener">muscar.app</a> ecosystem &bull; <a href="https://github.com/victoralaba/muscar_mail" target="_blank" rel="noopener">GitHub</a> &bull; Licensed under MIT
   </footer>
 </body>
 </html>

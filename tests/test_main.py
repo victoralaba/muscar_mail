@@ -207,9 +207,10 @@ def test_openapi_catalog_endpoints():
 
 
 def test_homepage_html_render():
-    """Validates: GET / returns 200 HTML page with link to muscar.app."""
+    """Validates: GET / returns 200 HTML page with link to muscar.app and github repo."""
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     assert "Muscar Mail" in resp.text
     assert "https://muscar.app" in resp.text
+    assert "https://github.com/victoralaba/muscar_mail" in resp.text
