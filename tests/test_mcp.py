@@ -204,7 +204,7 @@ def test_mcp_notifications_initialized():
     resp = client.post("/mcp/v1/", json=req, headers=AUTH_HEADERS)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["error"] is None
+    assert "error" not in data
     assert data["result"] == {}
 
 

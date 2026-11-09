@@ -1,6 +1,6 @@
 from enum import IntEnum
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, model_serializer
 
 
 class JSONRPCErrorCode(IntEnum):
@@ -23,6 +23,13 @@ class JSONRPCError(BaseModel):
     data: Optional[Any] = Field(default=None, description="Additional structured information about the error.")
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_serializer(mode="wrap")
+    def _serialize_error(self, handler) -> Dict[str, Any]:
+        d = handler(self)
+        if self.data is None:
+            d.pop("data", None)
+        return d
 
 
 class JSONRPCRequest(BaseModel):
@@ -54,6 +61,16 @@ class JSONRPCResponse(BaseModel):
     error: Optional[JSONRPCError] = Field(default=None, description="Error object if method invocation failed.")
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_serializer(mode="wrap")
+    def _serialize_rpc(self, handler) -> Dict[str, Any]:
+        """Strict JSON-RPC 2.0 serialization: excludes 'error' on success, excludes 'result' on error."""
+        data = handler(self)
+        if self.error is None:
+            data.pop("error", None)
+        if self.result is None:
+            data.pop("result", None)
+        return data
 
 
 # -----------------------------------------------------------------------------
