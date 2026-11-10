@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
@@ -25,7 +26,7 @@ class AccountSettings(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "/etc/secrets/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -62,7 +63,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.1.4"
+    MCP_SERVER_VERSION: str = "1.1.5"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
@@ -91,6 +92,16 @@ class Settings(BaseSettings):
     def normalize_base_url(cls, v: str) -> str:
         return v.rstrip("/")
 
+    @property
+    def additional_accounts_raw(self) -> Optional[Any]:
+        if self.VERIFALIA_ADDITIONAL_ACCOUNTS:
+            return self.VERIFALIA_ADDITIONAL_ACCOUNTS
+        for alt in ("VERIFALIA_ADDITIONAL_ACCOUNT", "ADDITIONAL_ACCOUNTS", "VERIFALIA_ACCOUNTS"):
+            val = os.getenv(alt)
+            if val:
+                return val
+        return None
+
     def get_all_accounts(self) -> Dict[str, AccountSettings]:
         """Returns map of all configured accounts (default primary account + any additional org accounts)."""
         accounts: Dict[str, AccountSettings] = {}
@@ -111,8 +122,8 @@ class Settings(BaseSettings):
         )
 
         # 2. Additional org accounts if configured
-        if self.VERIFALIA_ADDITIONAL_ACCOUNTS:
-            raw = self.VERIFALIA_ADDITIONAL_ACCOUNTS
+        raw = self.additional_accounts_raw
+        if raw:
             parsed: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
 
             if isinstance(raw, str) and raw.strip():

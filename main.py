@@ -314,6 +314,7 @@ def create_app() -> FastAPI:
             "version": current_settings.MCP_SERVER_VERSION,
             "protocol_version": current_settings.MCP_PROTOCOL_VERSION,
             "accounts": list(current_settings.get_all_accounts().keys()),
+            "accounts_env_present": bool(current_settings.additional_accounts_raw),
         }
 
     # 4. Mount branded HTML landing page
