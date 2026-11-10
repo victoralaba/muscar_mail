@@ -60,6 +60,34 @@ def test_config_multi_account_parsing():
     assert all_accounts["org3"].api_keys == ["org3_single_key"]
 
 
+def test_config_multi_account_resilient_quoting():
+    """Validates: VERIFALIA_ADDITIONAL_ACCOUNTS handles single-quoted, double-quoted, and escaped JSON."""
+    raw_with_single_quotes = "'{\"org2\": {\"username\": \"user2\", \"password\": \"pass2\", \"api_keys\": [\"k2\"]}}'"
+    cfg1 = Settings(
+        VERIFALIA_USERNAME="user1",
+        VERIFALIA_PASSWORD="pass1",
+        MCP_API_KEYS=["k1"],
+        REDIS_URL="redis://localhost:6379",
+        VERIFALIA_ADDITIONAL_ACCOUNTS=raw_with_single_quotes,
+    )
+    accs1 = cfg1.get_all_accounts()
+    assert "org2" in accs1
+    assert accs1["org2"].username == "user2"
+
+    # Python dict string format
+    dict_repr = "{'org3': {'username': 'user3', 'password': 'pass3', 'api_keys': ['k3']}}"
+    cfg2 = Settings(
+        VERIFALIA_USERNAME="user1",
+        VERIFALIA_PASSWORD="pass1",
+        MCP_API_KEYS=["k1"],
+        REDIS_URL="redis://localhost:6379",
+        VERIFALIA_ADDITIONAL_ACCOUNTS=dict_repr,
+    )
+    accs2 = cfg2.get_all_accounts()
+    assert "org3" in accs2
+    assert accs2["org3"].username == "user3"
+
+
 def test_authenticated_account_str_subclass():
     """Validates: AuthenticatedAccount is a string subclass retaining account metadata."""
     auth = AuthenticatedAccount(

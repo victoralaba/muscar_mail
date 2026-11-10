@@ -1,8 +1,12 @@
+import ast
 import json
+import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("muscar_mail.config")
 
 
 class AccountSettings(BaseModel):
@@ -111,10 +115,34 @@ class Settings(BaseSettings):
             parsed: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
 
             if isinstance(raw, str) and raw.strip():
+                cleaned = raw.strip()
+                # Strip wrapping single/double quotes added by deployment UIs or env files
+                while (cleaned.startswith("'") and cleaned.endswith("'")) or (cleaned.startswith('"') and cleaned.endswith('"')):
+                    cleaned = cleaned[1:-1].strip()
+
                 try:
-                    parsed = json.loads(raw)
-                except Exception as exc:
-                    raise ValueError(f"Invalid JSON in VERIFALIA_ADDITIONAL_ACCOUNTS: {exc}")
+                    parsed = json.loads(cleaned)
+                except Exception:
+                    try:
+                        parsed = ast.literal_eval(cleaned)
+                    except Exception:
+                        try:
+                            # Handle escaped JSON string if passed as \"{...}\"
+                            parsed = json.loads(f'"{cleaned}"')
+                            if isinstance(parsed, str):
+                                parsed = json.loads(parsed)
+                        except Exception as exc:
+                            logger.error(
+                                "Failed to parse VERIFALIA_ADDITIONAL_ACCOUNTS; skipping additional accounts.",
+                                error=str(exc),
+                            )
+                            parsed = None
+
+                if isinstance(parsed, str):
+                    try:
+                        parsed = json.loads(parsed)
+                    except Exception:
+                        pass
             elif isinstance(raw, (dict, list)):
                 parsed = raw
 
