@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.1.2"
+    MCP_SERVER_VERSION: str = "1.1.3"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
@@ -148,19 +148,34 @@ class Settings(BaseSettings):
                 parsed = raw
 
             if isinstance(parsed, dict):
-                for acc_id, acc_data in parsed.items():
-                    if isinstance(acc_data, dict):
-                        acc_keys = acc_data.get("api_keys", [])
-                        if isinstance(acc_keys, str):
-                            acc_keys = [k.strip() for k in acc_keys.split(",") if k.strip()]
-                        accounts[acc_id] = AccountSettings(
-                            account_id=acc_id,
-                            username=acc_data.get("username") or acc_data.get("VERIFALIA_USERNAME", ""),
-                            password=acc_data.get("password") or acc_data.get("VERIFALIA_PASSWORD", ""),
-                            base_url=(acc_data.get("base_url") or acc_data.get("VERIFALIA_BASE_URL", self.VERIFALIA_BASE_URL)).rstrip("/"),
-                            wait_time_ms=int(acc_data.get("wait_time_ms") or acc_data.get("VERIFALIA_WAIT_TIME_MS", self.VERIFALIA_WAIT_TIME_MS)),
-                            api_keys=acc_keys,
-                        )
+                # Handle single account dict without nested account ID key (e.g. {"username": "...", "api_keys": [...]})
+                if any(k in parsed for k in ("username", "VERIFALIA_USERNAME", "password", "VERIFALIA_PASSWORD", "api_keys")):
+                    acc_id = str(parsed.get("account_id") or "org2")
+                    acc_keys = parsed.get("api_keys", [])
+                    if isinstance(acc_keys, str):
+                        acc_keys = [k.strip() for k in acc_keys.split(",") if k.strip()]
+                    accounts[acc_id] = AccountSettings(
+                        account_id=acc_id,
+                        username=parsed.get("username") or parsed.get("VERIFALIA_USERNAME", ""),
+                        password=parsed.get("password") or parsed.get("VERIFALIA_PASSWORD", ""),
+                        base_url=(parsed.get("base_url") or parsed.get("VERIFALIA_BASE_URL", self.VERIFALIA_BASE_URL)).rstrip("/"),
+                        wait_time_ms=int(parsed.get("wait_time_ms") or parsed.get("VERIFALIA_WAIT_TIME_MS", self.VERIFALIA_WAIT_TIME_MS)),
+                        api_keys=acc_keys,
+                    )
+                else:
+                    for acc_id, acc_data in parsed.items():
+                        if isinstance(acc_data, dict):
+                            acc_keys = acc_data.get("api_keys", [])
+                            if isinstance(acc_keys, str):
+                                acc_keys = [k.strip() for k in acc_keys.split(",") if k.strip()]
+                            accounts[acc_id] = AccountSettings(
+                                account_id=acc_id,
+                                username=acc_data.get("username") or acc_data.get("VERIFALIA_USERNAME", ""),
+                                password=acc_data.get("password") or acc_data.get("VERIFALIA_PASSWORD", ""),
+                                base_url=(acc_data.get("base_url") or acc_data.get("VERIFALIA_BASE_URL", self.VERIFALIA_BASE_URL)).rstrip("/"),
+                                wait_time_ms=int(acc_data.get("wait_time_ms") or acc_data.get("VERIFALIA_WAIT_TIME_MS", self.VERIFALIA_WAIT_TIME_MS)),
+                                api_keys=acc_keys,
+                            )
             elif isinstance(parsed, list):
                 for idx, acc_data in enumerate(parsed):
                     if isinstance(acc_data, dict):
