@@ -103,6 +103,20 @@ def test_config_multi_account_resilient_quoting():
     )
     accs2 = cfg2.get_all_accounts()
     assert "org3" in accs2
+
+    # Truncated JSON missing trailing closing brace
+    truncated_json = '{"org2":{"username":"org2_u","password":"org2_p","api_keys":["org2_k"]}'
+    cfg3 = Settings(
+        VERIFALIA_USERNAME="user1",
+        VERIFALIA_PASSWORD="pass1",
+        MCP_API_KEYS=["k1"],
+        REDIS_URL="redis://localhost:6379",
+        VERIFALIA_ADDITIONAL_ACCOUNTS=truncated_json,
+    )
+    accs3 = cfg3.get_all_accounts()
+    assert "org2" in accs3
+    assert accs3["org2"].username == "org2_u"
+    assert accs3["org2"].api_keys == ["org2_k"]
     assert accs2["org3"].username == "user3"
 
 

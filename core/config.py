@@ -63,7 +63,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.1.6"
+    MCP_SERVER_VERSION: str = "1.1.7"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
@@ -132,6 +132,18 @@ class Settings(BaseSettings):
                 while (cleaned.startswith("'") and cleaned.endswith("'")) or (cleaned.startswith('"') and cleaned.endswith('"')):
                     cleaned = cleaned[1:-1].strip()
 
+                def _auto_heal(text: str) -> str:
+                    s = text.strip()
+                    open_sq = s.count("[")
+                    close_sq = s.count("]")
+                    if open_sq > close_sq:
+                        s += "]" * (open_sq - close_sq)
+                    open_curly = s.count("{")
+                    close_curly = s.count("}")
+                    if open_curly > close_curly:
+                        s += "}" * (open_curly - close_curly)
+                    return s
+
                 try:
                     parsed = json.loads(cleaned)
                 except Exception as e1:
@@ -139,21 +151,30 @@ class Settings(BaseSettings):
                         parsed = ast.literal_eval(cleaned)
                     except Exception as e2:
                         try:
-                            # Handle escaped JSON string if passed as \"{...}\"
-                            parsed = json.loads(f'"{cleaned}"')
-                            if isinstance(parsed, str):
-                                parsed = json.loads(parsed)
+                            # Auto-heal unclosed brackets/braces from copy-paste truncation
+                            healed = _auto_heal(cleaned)
+                            parsed = json.loads(healed)
                         except Exception as e3:
-                            object.__setattr__(self, "_last_account_parse_error", f"JSON: {e1} | AST: {e2} | Escaped: {e3}")
-                            logger.error(
-                                "Failed to parse VERIFALIA_ADDITIONAL_ACCOUNTS; skipping additional accounts.",
-                                error=str(e3),
-                            )
-                            parsed = None
+                            try:
+                                # Handle escaped JSON string if passed as \"{...}\"
+                                parsed = json.loads(f'"{cleaned}"')
+                                if isinstance(parsed, str):
+                                    parsed = json.loads(_auto_heal(parsed))
+                            except Exception as e4:
+                                object.__setattr__(
+                                    self,
+                                    "_last_account_parse_error",
+                                    f"JSON: {e1} | AST: {e2} | Healed: {e3} | Escaped: {e4}",
+                                )
+                                logger.error(
+                                    "Failed to parse VERIFALIA_ADDITIONAL_ACCOUNTS; skipping additional accounts.",
+                                    error=str(e4),
+                                )
+                                parsed = None
 
                 if isinstance(parsed, str):
                     try:
-                        parsed = json.loads(parsed)
+                        parsed = json.loads(_auto_heal(parsed))
                     except Exception:
                         pass
             elif isinstance(raw, (dict, list)):
