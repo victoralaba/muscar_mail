@@ -3,6 +3,7 @@ import time
 from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
+from core.config import get_settings
 from main import app, create_app, lifespan
 from domains.verification.schemas import (
     BatchVerificationResponse,
@@ -32,7 +33,7 @@ def test_health_check_instantaneous_zero_network():
         data = response.json()
         assert data["status"] == "healthy"
         assert data["app"] == "muscar-mail"
-        assert data["version"] == "1.0.0"
+        assert data["version"] == get_settings().MCP_SERVER_VERSION
         assert data["protocol_version"] == "2026-07-28"
 
         # Performance guarantee: instantaneous response (<50ms in test environment)

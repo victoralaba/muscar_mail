@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.0.0"
+    MCP_SERVER_VERSION: str = "1.1.0"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
