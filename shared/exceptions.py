@@ -1,6 +1,9 @@
+import logging
 from typing import Any, Dict, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("muscar_mail.exceptions")
 
 
 class MuscarMailError(Exception):
@@ -82,3 +85,15 @@ async def muscar_mail_exception_handler(
 def register_exception_handlers(app: FastAPI) -> None:
     """Mounts muscar_mail domain exception handlers onto a FastAPI application instance."""
     app.add_exception_handler(MuscarMailError, muscar_mail_exception_handler)
+
+    @app.exception_handler(Exception)
+    async def global_unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.error("Unhandled server exception.", exc_info=exc, path=str(request.url))
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "InternalServerError",
+                "message": str(exc),
+                "type": type(exc).__name__,
+            },
+        )
