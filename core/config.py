@@ -1,7 +1,21 @@
+import json
 from functools import lru_cache
-from typing import List, Optional, Union
-from pydantic import ValidationInfo, field_validator
+from typing import Any, Dict, List, Optional, Union
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AccountSettings(BaseModel):
+    """Configuration for an upstream Verifalia account and its authorized MCP API keys."""
+
+    account_id: str
+    username: str
+    password: str
+    base_url: str = "https://api.verifalia.com/v2.4"
+    wait_time_ms: int = 30000
+    api_keys: List[str]
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class Settings(BaseSettings):
@@ -37,6 +51,10 @@ class Settings(BaseSettings):
     # Optional Telemetry (Sentry)
     SENTRY_DSN: Optional[str] = None
 
+    # Optional Additional Verifalia Accounts for Multi-Tenant / Multi-Org Support
+    # Accepts JSON string, dict, or list of account definitions
+    VERIFALIA_ADDITIONAL_ACCOUNTS: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None
+
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
     MCP_SERVER_VERSION: str = "1.0.0"
@@ -67,6 +85,74 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_base_url(cls, v: str) -> str:
         return v.rstrip("/")
+
+    def get_all_accounts(self) -> Dict[str, AccountSettings]:
+        """Returns map of all configured accounts (default primary account + any additional org accounts)."""
+        accounts: Dict[str, AccountSettings] = {}
+
+        # 1. Primary/default account from root settings (always present)
+        keys = (
+            self.MCP_API_KEYS
+            if isinstance(self.MCP_API_KEYS, list)
+            else [k.strip() for k in str(self.MCP_API_KEYS).split(",") if k.strip()]
+        )
+        accounts["default"] = AccountSettings(
+            account_id="default",
+            username=self.VERIFALIA_USERNAME,
+            password=self.VERIFALIA_PASSWORD,
+            base_url=self.VERIFALIA_BASE_URL,
+            wait_time_ms=self.VERIFALIA_WAIT_TIME_MS,
+            api_keys=keys,
+        )
+
+        # 2. Additional org accounts if configured
+        if self.VERIFALIA_ADDITIONAL_ACCOUNTS:
+            raw = self.VERIFALIA_ADDITIONAL_ACCOUNTS
+            parsed: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                except Exception as exc:
+                    raise ValueError(f"Invalid JSON in VERIFALIA_ADDITIONAL_ACCOUNTS: {exc}")
+            elif isinstance(raw, (dict, list)):
+                parsed = raw
+
+            if isinstance(parsed, dict):
+                for acc_id, acc_data in parsed.items():
+                    if isinstance(acc_data, dict):
+                        acc_keys = acc_data.get("api_keys", [])
+                        if isinstance(acc_keys, str):
+                            acc_keys = [k.strip() for k in acc_keys.split(",") if k.strip()]
+                        accounts[acc_id] = AccountSettings(
+                            account_id=acc_id,
+                            username=acc_data.get("username") or acc_data.get("VERIFALIA_USERNAME", ""),
+                            password=acc_data.get("password") or acc_data.get("VERIFALIA_PASSWORD", ""),
+                            base_url=(acc_data.get("base_url") or acc_data.get("VERIFALIA_BASE_URL", self.VERIFALIA_BASE_URL)).rstrip("/"),
+                            wait_time_ms=int(acc_data.get("wait_time_ms") or acc_data.get("VERIFALIA_WAIT_TIME_MS", self.VERIFALIA_WAIT_TIME_MS)),
+                            api_keys=acc_keys,
+                        )
+            elif isinstance(parsed, list):
+                for idx, acc_data in enumerate(parsed):
+                    if isinstance(acc_data, dict):
+                        acc_id = acc_data.get("account_id") or f"org_{idx + 2}"
+                        acc_keys = acc_data.get("api_keys", [])
+                        if isinstance(acc_keys, str):
+                            acc_keys = [k.strip() for k in acc_keys.split(",") if k.strip()]
+                        accounts[acc_id] = AccountSettings(
+                            account_id=acc_id,
+                            username=acc_data.get("username") or acc_data.get("VERIFALIA_USERNAME", ""),
+                            password=acc_data.get("password") or acc_data.get("VERIFALIA_PASSWORD", ""),
+                            base_url=(acc_data.get("base_url") or acc_data.get("VERIFALIA_BASE_URL", self.VERIFALIA_BASE_URL)).rstrip("/"),
+                            wait_time_ms=int(acc_data.get("wait_time_ms") or acc_data.get("VERIFALIA_WAIT_TIME_MS", self.VERIFALIA_WAIT_TIME_MS)),
+                            api_keys=acc_keys,
+                        )
+
+        return accounts
+
+    def get_account(self, account_id: str) -> Optional[AccountSettings]:
+        """Returns specific account configuration by ID if defined."""
+        return self.get_all_accounts().get(account_id)
 
 
 @lru_cache()

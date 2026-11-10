@@ -247,5 +247,41 @@ class VerifaliaService:
         await self.aclose()
 
 
-# Global singleton instance
-verifalia_service = VerifaliaService()
+class VerifaliaServiceRegistry:
+    """Manages and caches VerifaliaService instances per account identity.
+
+    Reuses httpx2 HTTP/2 connection pools per account while ensuring clean, unified teardown.
+    """
+
+    def __init__(self) -> None:
+        self._services: Dict[str, VerifaliaService] = {}
+
+    def get_service(
+        self,
+        account_id: str = "default",
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> VerifaliaService:
+        """Returns or creates a cached VerifaliaService instance for the given account."""
+        if account_id not in self._services:
+            self._services[account_id] = VerifaliaService(
+                username=username,
+                password=password,
+                base_url=base_url,
+            )
+        return self._services[account_id]
+
+    async def close_all(self) -> None:
+        """Closes connection pools for all managed VerifaliaService instances."""
+        for service in list(self._services.values()):
+            try:
+                await service.close()
+            except Exception as exc:
+                logger.warning("Error closing service connection pool.", error=str(exc))
+        self._services.clear()
+
+
+# Global singleton registry and default service instance
+service_registry = VerifaliaServiceRegistry()
+verifalia_service = service_registry.get_service("default")

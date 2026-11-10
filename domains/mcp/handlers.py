@@ -15,7 +15,11 @@ from domains.mcp.protocol import (
 )
 from domains.mcp.registry import ToolRegistry, tool_registry
 from domains.verification.cache import VerificationCache, verification_cache
-from domains.verification.service import VerifaliaService, verifalia_service
+from domains.verification.service import (
+    VerifaliaService,
+    service_registry,
+    verifalia_service,
+)
 from shared.exceptions import (
     AuthenticationError,
     BatchLimitExceededError,
@@ -24,6 +28,7 @@ from shared.exceptions import (
     UpstreamProviderError,
     UpstreamTimeoutError,
 )
+from shared.security import AuthenticatedAccount
 
 logger = get_logger("muscar_mail.mcp")
 
@@ -60,7 +65,9 @@ class MCPHandler:
     def _registry(self) -> ToolRegistry:
         return self._custom_registry or tool_registry
 
-    async def handle_request(self, request: JSONRPCRequest) -> JSONRPCResponse:
+    async def handle_request(
+        self, request: JSONRPCRequest, account: Optional[AuthenticatedAccount] = None
+    ) -> JSONRPCResponse:
         """Top-level dispatcher routing incoming JSON-RPC methods."""
         req_id = request.id
 
@@ -101,7 +108,7 @@ class MCPHandler:
                 return JSONRPCResponse(id=req_id, result=result)
 
             elif method == "tools/call":
-                tool_result = await self._handle_tool_call(params)
+                tool_result = await self._handle_tool_call(params, account=account)
                 return JSONRPCResponse(id=req_id, result=tool_result.model_dump())
 
             else:
@@ -160,7 +167,9 @@ class MCPHandler:
         res = ToolsListResult(tools=self._registry.get_tools())
         return res.model_dump()
 
-    async def _handle_tool_call(self, params: Dict[str, Any]) -> ToolCallResult:
+    async def _handle_tool_call(
+        self, params: Dict[str, Any], account: Optional[AuthenticatedAccount] = None
+    ) -> ToolCallResult:
         """Validates and executes an MCP tool call."""
         name = params.get("name")
         arguments = params.get("arguments")
@@ -182,19 +191,21 @@ class MCPHandler:
 
         # Dispatch based on tool name
         if name == "verify_emails":
-            return await self._call_verify_emails(arguments)
+            return await self._call_verify_emails(arguments, account=account)
         elif name == "get_cached_verification":
             return await self._call_get_cached_verification(arguments)
         elif name == "get_credit_balance":
-            return await self._call_get_credit_balance()
+            return await self._call_get_credit_balance(account=account)
         else:
             return ToolCallResult(
                 content=[TextContent(text=f"Handler for tool '{name}' is not implemented.")],
                 isError=True,
             )
 
-    async def _call_verify_emails(self, arguments: Dict[str, Any]) -> ToolCallResult:
-        """Executes the verify_emails tool with boundary validation and zero-credit cache checks."""
+    async def _call_verify_emails(
+        self, arguments: Dict[str, Any], account: Optional[AuthenticatedAccount] = None
+    ) -> ToolCallResult:
+        """Executes the verify_emails tool with boundary validation, multi-tenant quota checks, and zero-credit caching."""
         emails_param = arguments.get("emails")
 
         if not isinstance(emails_param, list):
@@ -229,6 +240,19 @@ class MCPHandler:
                 )
             cleaned_emails.append(item.strip())
 
+        # Resolve account context and corresponding service
+        account_id = getattr(account, "account_id", "default") if account else "default"
+        target_service = (
+            self._service
+            if account_id == "default"
+            else service_registry.get_service(
+                account_id=account_id,
+                username=getattr(account, "username", None),
+                password=getattr(account, "password", None),
+                base_url=getattr(account, "base_url", None),
+            )
+        )
+
         # 1. Zero-credit cache recovery check
         cached_result = await self._cache.get_cached_batch(cleaned_emails)
         if cached_result is not None:
@@ -239,12 +263,17 @@ class MCPHandler:
 
         # 2. Daily quota boundary check (Safe deduplication canonical count)
         canonical_count = len(VerificationCache.get_canonical_emails(cleaned_emails))
-        if not await self._cache.is_daily_quota_available(canonical_count):
+        quota_available = (
+            await self._cache.is_daily_quota_available(canonical_count)
+            if account_id == "default"
+            else await self._cache.is_daily_quota_available(canonical_count, account_id=account_id)
+        )
+        if not quota_available:
             return ToolCallResult(
                 content=[
                     TextContent(
                         text=(
-                            "Daily verification quota reached (max 25 credits/day). "
+                            f"Daily verification quota reached for account '{account_id}' (max 25 credits/day). "
                             "Resets automatically at 00:00:00 UTC."
                         )
                     )
@@ -254,10 +283,13 @@ class MCPHandler:
 
         # 3. Synchronous upstream verification call
         try:
-            result = await self._service.verify_emails(emails=cleaned_emails)
+            result = await target_service.verify_emails(emails=cleaned_emails)
             # 4. Cache persistence & quota tracking
             await self._cache.cache_batch(emails=cleaned_emails, response=result)
-            await self._cache.increment_daily_quota(amount=canonical_count)
+            if account_id == "default":
+                await self._cache.increment_daily_quota(amount=canonical_count)
+            else:
+                await self._cache.increment_daily_quota(amount=canonical_count, account_id=account_id)
 
             return ToolCallResult(
                 content=[TextContent(text=result.model_dump_json(indent=2))],
@@ -339,10 +371,23 @@ class MCPHandler:
                 isError=False,
             )
 
-    async def _call_get_credit_balance(self) -> ToolCallResult:
-        """Executes get_credit_balance tool."""
+    async def _call_get_credit_balance(
+        self, account: Optional[AuthenticatedAccount] = None
+    ) -> ToolCallResult:
+        """Executes get_credit_balance tool for authenticated account."""
+        account_id = getattr(account, "account_id", "default") if account else "default"
+        target_service = (
+            self._service
+            if account_id == "default"
+            else service_registry.get_service(
+                account_id=account_id,
+                username=getattr(account, "username", None),
+                password=getattr(account, "password", None),
+                base_url=getattr(account, "base_url", None),
+            )
+        )
         try:
-            balance = await self._service.get_credit_balance()
+            balance = await target_service.get_credit_balance()
             return ToolCallResult(
                 content=[TextContent(text=balance.model_dump_json(indent=2))],
                 isError=False,

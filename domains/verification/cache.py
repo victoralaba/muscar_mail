@@ -43,9 +43,14 @@ class VerificationCache:
         return f"cache:batch:{batch_hash}"
 
     @staticmethod
-    def get_today_quota_key() -> str:
-        """Returns Redis daily quota key formatted as quota:daily:YYYY-MM-DD in UTC."""
+    def get_today_quota_key(account_id: str = "default") -> str:
+        """Returns Redis daily quota key formatted as quota:daily:{account_id}:YYYY-MM-DD in UTC.
+
+        Falls back to quota:daily:YYYY-MM-DD for default account to preserve backward compatibility.
+        """
         today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if account_id and account_id != "default":
+            return f"quota:daily:{account_id}:{today_utc}"
         return f"quota:daily:{today_utc}"
 
     @staticmethod
@@ -124,9 +129,11 @@ class VerificationCache:
         payload = response.model_dump_json()
         return await self._redis.set(key, payload, ex=ttl_seconds)
 
-    async def is_daily_quota_available(self, requested_count: int) -> bool:
-        """Checks if current daily usage plus requested batch count does not exceed 25."""
-        quota_key = self.get_today_quota_key()
+    async def is_daily_quota_available(
+        self, requested_count: int, account_id: str = "default"
+    ) -> bool:
+        """Checks if current daily usage plus requested batch count does not exceed 25 for given account."""
+        quota_key = self.get_today_quota_key(account_id)
         raw_val = await self._redis.get(quota_key)
         if raw_val is None:
             # Key does not exist yet, quota is available
@@ -139,10 +146,10 @@ class VerificationCache:
             return True
 
     async def increment_daily_quota(
-        self, amount: int, reset_on: Optional[str] = None
+        self, amount: int, reset_on: Optional[str] = None, account_id: str = "default"
     ) -> Optional[int]:
-        """Atomically increments daily quota counter and sets dynamic midnight-UTC TTL."""
-        quota_key = self.get_today_quota_key()
+        """Atomically increments daily quota counter and sets dynamic midnight-UTC TTL for given account."""
+        quota_key = self.get_today_quota_key(account_id)
         new_val = await self._redis.incrby(quota_key, amount)
         if new_val is not None:
             ttl = self.calculate_midnight_utc_ttl(reset_on)

@@ -8,7 +8,7 @@ from core.logging import get_logger, setup_logging
 from core.telemetry import init_telemetry
 from domains.mcp.routes import router as mcp_router
 from domains.verification.routes import router as verification_router
-from domains.verification.service import verifalia_service
+from domains.verification.service import service_registry, verifalia_service
 from shared.exceptions import register_exception_handlers
 from shared.redis import redis_client
 
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Teardown logic on SIGTERM / instance sleep
     logger.info("Shutting down muscar_mail application. Releasing connection pools...")
     try:
-        await verifalia_service.close()
+        await service_registry.close_all()
     except Exception as exc:
         logger.warning("Error releasing Verifalia HTTP client connection pool.", error=str(exc))
 

@@ -11,7 +11,7 @@ from domains.mcp.protocol import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
-from shared.security import verify_mcp_api_key
+from shared.security import AuthenticatedAccount, verify_mcp_api_key
 
 logger = get_logger("muscar_mail.mcp.routes")
 
@@ -41,7 +41,7 @@ def get_mcp_handler() -> MCPHandler:
 async def mcp_endpoint(
     request: Request,
     response: Response,
-    api_key: str = Depends(verify_mcp_api_key),
+    api_key: AuthenticatedAccount = Depends(verify_mcp_api_key),
     handler: MCPHandler = Depends(get_mcp_handler),
 ) -> Union[JSONRPCResponse, List[JSONRPCResponse]]:
     """Receives and dispatches stateless JSON-RPC 2.0 requests with strict error mapping."""
@@ -73,15 +73,17 @@ async def mcp_endpoint(
             )
         batch_responses: List[JSONRPCResponse] = []
         for item in raw_data:
-            resp = await _process_single_rpc_item(item, handler)
+            resp = await _process_single_rpc_item(item, handler, account=api_key)
             batch_responses.append(resp)
         return batch_responses
 
     # 3. Handle single JSON-RPC request
-    return await _process_single_rpc_item(raw_data, handler)
+    return await _process_single_rpc_item(raw_data, handler, account=api_key)
 
 
-async def _process_single_rpc_item(item: Any, handler: MCPHandler) -> JSONRPCResponse:
+async def _process_single_rpc_item(
+    item: Any, handler: MCPHandler, account: Optional[AuthenticatedAccount] = None
+) -> JSONRPCResponse:
     """Validates and dispatches a single JSON-RPC request object."""
     if not isinstance(item, dict):
         return JSONRPCResponse(
@@ -109,4 +111,4 @@ async def _process_single_rpc_item(item: Any, handler: MCPHandler) -> JSONRPCRes
             ),
         )
 
-    return await handler.handle_request(rpc_request)
+    return await handler.handle_request(rpc_request, account=account)
