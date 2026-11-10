@@ -63,7 +63,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.1.5"
+    MCP_SERVER_VERSION: str = "1.1.6"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
@@ -134,19 +134,20 @@ class Settings(BaseSettings):
 
                 try:
                     parsed = json.loads(cleaned)
-                except Exception:
+                except Exception as e1:
                     try:
                         parsed = ast.literal_eval(cleaned)
-                    except Exception:
+                    except Exception as e2:
                         try:
                             # Handle escaped JSON string if passed as \"{...}\"
                             parsed = json.loads(f'"{cleaned}"')
                             if isinstance(parsed, str):
                                 parsed = json.loads(parsed)
-                        except Exception as exc:
+                        except Exception as e3:
+                            object.__setattr__(self, "_last_account_parse_error", f"JSON: {e1} | AST: {e2} | Escaped: {e3}")
                             logger.error(
                                 "Failed to parse VERIFALIA_ADDITIONAL_ACCOUNTS; skipping additional accounts.",
-                                error=str(exc),
+                                error=str(e3),
                             )
                             parsed = None
 

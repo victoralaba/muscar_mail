@@ -308,13 +308,15 @@ def create_app() -> FastAPI:
     async def health_check() -> Dict[str, Any]:
         """Returns instantaneous healthy status for container orchestrators."""
         current_settings = get_settings()
+        accounts_map = current_settings.get_all_accounts()
         return {
             "status": "healthy",
             "app": current_settings.MCP_SERVER_NAME,
             "version": current_settings.MCP_SERVER_VERSION,
             "protocol_version": current_settings.MCP_PROTOCOL_VERSION,
-            "accounts": list(current_settings.get_all_accounts().keys()),
+            "accounts": list(accounts_map.keys()),
             "accounts_env_present": bool(current_settings.additional_accounts_raw),
+            "accounts_parse_error": getattr(current_settings, "_last_account_parse_error", None),
         }
 
     # 4. Mount branded HTML landing page
