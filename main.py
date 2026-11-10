@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -305,13 +305,15 @@ def create_app() -> FastAPI:
         summary="Zero-network health check",
         description="Instantaneous (<5ms) probe confirming container uptime without external network dispatch.",
     )
-    async def health_check() -> Dict[str, str]:
+    async def health_check() -> Dict[str, Any]:
         """Returns instantaneous healthy status for container orchestrators."""
+        current_settings = get_settings()
         return {
             "status": "healthy",
-            "app": settings.MCP_SERVER_NAME,
-            "version": settings.MCP_SERVER_VERSION,
-            "protocol_version": settings.MCP_PROTOCOL_VERSION,
+            "app": current_settings.MCP_SERVER_NAME,
+            "version": current_settings.MCP_SERVER_VERSION,
+            "protocol_version": current_settings.MCP_PROTOCOL_VERSION,
+            "accounts": list(current_settings.get_all_accounts().keys()),
         }
 
     # 4. Mount branded HTML landing page
