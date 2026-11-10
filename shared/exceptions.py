@@ -1,9 +1,10 @@
-import logging
 from typing import Any, Dict, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger("muscar_mail.exceptions")
+from core.logging import get_logger
+
+logger = get_logger("muscar_mail.exceptions")
 
 
 class MuscarMailError(Exception):

@@ -1,11 +1,11 @@
-import logging
 import secrets
 from typing import Optional
 from fastapi import Header, HTTPException, status
 
 from core.config import AccountSettings, get_settings
+from core.logging import get_logger
 
-logger = logging.getLogger("muscar_mail.security")
+logger = get_logger("muscar_mail.security")
 
 
 class AuthenticatedAccount(str):
@@ -77,8 +77,9 @@ async def verify_mcp_api_key(
     matched_key_val: Optional[str] = None
 
     for account in accounts.values():
-        for valid_key in account.api_keys:
-            if secrets.compare_digest(provided_key, valid_key):
+        keys_list = account.api_keys if isinstance(account.api_keys, list) else [str(account.api_keys)]
+        for valid_key in keys_list:
+            if isinstance(valid_key, str) and secrets.compare_digest(provided_key, valid_key):
                 matched_account = account
                 matched_key_val = valid_key
 

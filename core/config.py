@@ -1,12 +1,13 @@
 import ast
 import json
-import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-logger = logging.getLogger("muscar_mail.config")
+from core.logging import get_logger
+
+logger = get_logger("muscar_mail.config")
 
 
 class AccountSettings(BaseModel):
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
 
     # Model Context Protocol Identity
     MCP_SERVER_NAME: str = "muscar-mail"
-    MCP_SERVER_VERSION: str = "1.1.1"
+    MCP_SERVER_VERSION: str = "1.1.2"
     MCP_PROTOCOL_VERSION: str = "2026-07-28"
     SUPPORTED_MCP_PROTOCOL_VERSIONS: List[str] = ["2026-07-28", "2025-11-25", "2024-11-05"]
 
